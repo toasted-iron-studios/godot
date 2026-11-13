@@ -34,6 +34,7 @@
 #include "core/config/project_settings.h"
 #include "core/os/latency_trace.h"
 #include "core/os/os.h"
+#include "core/profiling/profiling.h"
 #include "core/templates/fixed_vector.h"
 #include "drivers/vulkan/vulkan_hooks.h"
 
@@ -3336,9 +3337,12 @@ Error RenderingDeviceDriverVulkan::command_queue_execute_and_present(CommandQueu
 		submit_info.signalSemaphoreCount = signal_semaphores.size();
 		submit_info.pSignalSemaphores = signal_semaphores.ptr();
 
-		device_queue.submit_mutex.lock();
-		err = vkQueueSubmit(device_queue.queue, 1, &submit_info, vk_fence);
-		device_queue.submit_mutex.unlock();
+		{
+			GodotProfileZone("queue submit");
+			device_queue.submit_mutex.lock();
+			err = vkQueueSubmit(device_queue.queue, 1, &submit_info, vk_fence);
+			device_queue.submit_mutex.unlock();
+		}
 
 		if (err == VK_ERROR_DEVICE_LOST) {
 			print_lost_device_info();
@@ -3388,6 +3392,7 @@ Error RenderingDeviceDriverVulkan::command_queue_execute_and_present(CommandQueu
 		present_info.pImageIndices = image_indices.ptr();
 		present_info.pResults = results.ptr();
 
+		GodotProfileZone("queue present");
 		device_queue.submit_mutex.lock();
 #if defined(SWAPPY_FRAME_PACING_ENABLED)
 		if (swappy_frame_pacer_enable) {

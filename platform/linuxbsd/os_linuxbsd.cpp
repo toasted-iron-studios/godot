@@ -1000,9 +1000,13 @@ void OS_LinuxBSD::run() {
 		GodotProfileFrameMark;
 		GodotProfileZone("OS_LinuxBSD::run");
 		LatencyTrace::events_ns.store(LatencyTrace::now_ns());
-		DisplayServer::get_singleton()->process_events(); // get rid of pending events
+		{
+			GodotProfileZone("event poll");
+			DisplayServer::get_singleton()->process_events(); // get rid of pending events
+		}
 #ifdef SDL_ENABLED
 		if (joypad_sdl) {
+			GodotProfileZone("joypad events");
 			joypad_sdl->process_events();
 		}
 #endif

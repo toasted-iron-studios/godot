@@ -5397,7 +5397,11 @@ Error RenderingDevice::screen_prepare_for_drawing(DisplayServerEnums::WindowID p
 	}
 
 	bool resize_required = false;
-	RDD::FramebufferID framebuffer = driver->swap_chain_acquire_framebuffer(main_queue, it->value, resize_required);
+	RDD::FramebufferID framebuffer;
+	{
+		GodotProfileZone("swap chain acquire");
+		framebuffer = driver->swap_chain_acquire_framebuffer(main_queue, it->value, resize_required);
+	}
 	if (resize_required) {
 		// Flush everything so nothing can be using the swap chain before resizing it.
 		_flush_and_stall_for_all_frames();

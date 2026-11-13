@@ -236,7 +236,7 @@ void godot_init_profiler() {
 void godot_cleanup_profiler() {
 }
 
-#else
+#elif !defined(GODOT_USE_ZIPPY)
 void godot_init_profiler() {
 	// Stub
 }

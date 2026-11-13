@@ -178,6 +178,41 @@ struct PerfettoScriptTracer {
 void godot_init_profiler();
 void godot_cleanup_profiler();
 
+#elif defined(GODOT_USE_ZIPPY)
+// Zippy's frame ledger (core/profiling/zippy_ledger.h).
+
+#include "core/profiling/zippy_ledger.h"
+
+#define _GODOT_ZL_CAT_(m_a, m_b) m_a##m_b
+#define _GODOT_ZL_CAT(m_a, m_b) _GODOT_ZL_CAT_(m_a, m_b)
+#define _GODOT_ZL_SITE(m_var, m_zone_name) static ZippyLedger::Site m_var = { m_zone_name, __FUNCTION__, __FILE__, __LINE__, 0 }
+
+#define GodotProfileFrameMark ZippyLedger::frame_mark()
+#define GodotProfileZone(m_zone_name) _GODOT_ZL_ZONE(m_zone_name, __COUNTER__)
+#define _GODOT_ZL_ZONE(m_zone_name, m_counter) \
+	_GODOT_ZL_SITE(_GODOT_ZL_CAT(__zl_site_, m_counter), m_zone_name); \
+	ZippyLedgerZone _GODOT_ZL_CAT(__zl_zone_, m_counter)(&_GODOT_ZL_CAT(__zl_site_, m_counter))
+#define GodotProfileZoneGroupedFirst(m_group_name, m_zone_name) _GODOT_ZL_GROUP_FIRST(m_group_name, m_zone_name, __COUNTER__)
+#define _GODOT_ZL_GROUP_FIRST(m_group_name, m_zone_name, m_counter) \
+	_GODOT_ZL_SITE(_GODOT_ZL_CAT(__zl_site_, m_counter), m_zone_name); \
+	ZippyLedgerZone __zl_group_##m_group_name(&_GODOT_ZL_CAT(__zl_site_, m_counter))
+#define GodotProfileZoneGroupedEndEarly(m_group_name, m_zone_name) __zl_group_##m_group_name.end_now()
+#define GodotProfileZoneGrouped(m_group_name, m_zone_name) _GODOT_ZL_GROUP_NEXT(m_group_name, m_zone_name, __COUNTER__)
+#define _GODOT_ZL_GROUP_NEXT(m_group_name, m_zone_name, m_counter) \
+	_GODOT_ZL_SITE(_GODOT_ZL_CAT(__zl_site_, m_counter), m_zone_name); \
+	__zl_group_##m_group_name.next(&_GODOT_ZL_CAT(__zl_site_, m_counter))
+
+// A GDScript function call, keyed by its function object.
+#define GodotProfileZoneScript(m_ptr, m_file, m_function, m_name, m_line) \
+	ZippyLedgerZone GD_UNIQUE_NAME(__zl_script_)(ZippyLedger::keyed(m_ptr, nullptr, ZippyLedger::KIND_GDSCRIPT, [&]() { return String(m_file) + ":" + String(m_function); }))
+#define GodotProfileZoneScriptSystemCall(m_ptr, m_file, m_function, m_name, m_line)
+
+#define GodotProfileAlloc(m_ptr, m_size)
+#define GodotProfileFree(m_ptr)
+
+void godot_init_profiler();
+void godot_cleanup_profiler();
+
 #elif defined(GODOT_USE_INSTRUMENTS)
 
 #include <os/log.h>
