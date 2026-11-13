@@ -199,6 +199,7 @@ void SceneTree::remove_from_group(const StringName &p_group, Node *p_node) {
 
 void SceneTree::flush_transform_notifications() {
 	_THREAD_SAFE_METHOD_
+	GodotProfileZone("transform notifications");
 
 	SelfList<Node> *n = xform_change_list.first();
 	while (n) {
@@ -641,30 +642,38 @@ bool SceneTree::physics_process(double p_time) {
 
 	flush_transform_notifications();
 
+	GodotProfileZoneGroupedFirst(_tree_zone, "MainLoop::physics_process");
 	if (MainLoop::physics_process(p_time)) {
 		_quit = true;
 	}
 	physics_process_time = p_time;
 
+	GodotProfileZoneGrouped(_tree_zone, "physics_frame signal");
 	emit_signal(SNAME("physics_frame"));
 
 #if !defined(PHYSICS_2D_DISABLED) || !defined(PHYSICS_3D_DISABLED)
+	GodotProfileZoneGrouped(_tree_zone, "physics picking");
 	call_group(SNAME("_picking_viewports"), SNAME("_process_picking"));
 #endif // !defined(PHYSICS_2D_DISABLED) || !defined(PHYSICS_3D_DISABLED)
 
+	GodotProfileZoneGrouped(_tree_zone, "_physics_process nodes");
 	_process(true);
 
+	GodotProfileZoneGrouped(_tree_zone, "physics messages");
 	_flush_ugc();
 	MessageQueue::get_singleton()->flush(); //small little hack
 
+	GodotProfileZoneGrouped(_tree_zone, "physics timers and tweens");
 	process_timers(p_time, true); //go through timers
 	process_tweens(p_time, true);
 
 	flush_transform_notifications();
 
 	// This should happen last because any processing that deletes something beforehand might expect the object to be removed in the same frame.
+	GodotProfileZoneGrouped(_tree_zone, "physics delete queue");
 	_flush_delete_queue();
 
+	GodotProfileZoneGrouped(_tree_zone, "physics idle callbacks");
 	_call_idle_callbacks();
 
 	return _quit;
@@ -687,6 +696,7 @@ void SceneTree::iteration_end() {
 
 bool SceneTree::process(double p_time) {
 	// First pass of scene tree fixed timestep interpolation.
+	GodotProfileZoneGroupedFirst(_tree_zone, "fixed timestep interpolation");
 	if (get_scene_tree_fti().is_enabled()) {
 		// Special, we need to ensure RenderingServer is up to date
 		// with *all* the pending xforms *before* updating it during
@@ -697,12 +707,14 @@ bool SceneTree::process(double p_time) {
 		get_scene_tree_fti().frame_update(get_root(), true);
 	}
 
+	GodotProfileZoneGrouped(_tree_zone, "MainLoop::process");
 	if (MainLoop::process(p_time)) {
 		_quit = true;
 	}
 
 	process_time = p_time;
 
+	GodotProfileZoneGrouped(_tree_zone, "multiplayer poll");
 	if (multiplayer_poll) {
 		multiplayer->poll();
 		for (KeyValue<NodePath, Ref<MultiplayerAPI>> &E : custom_multiplayers) {
@@ -710,32 +722,41 @@ bool SceneTree::process(double p_time) {
 		}
 	}
 
+	GodotProfileZoneGrouped(_tree_zone, "process_frame signal");
 	emit_signal(SNAME("process_frame"));
 
+	GodotProfileZoneGrouped(_tree_zone, "messages");
 	MessageQueue::get_singleton()->flush(); //small little hack
 
 	flush_transform_notifications();
 
+	GodotProfileZoneGrouped(_tree_zone, "_process nodes");
 	_process(false);
 
+	GodotProfileZoneGrouped(_tree_zone, "messages after process");
 	_flush_ugc();
 	MessageQueue::get_singleton()->flush(); //small little hack
 	flush_transform_notifications(); //transforms after world update, to avoid unnecessary enter/exit notifications
 
 	if (unlikely(pending_new_scene_id.is_valid())) {
+		GodotProfileZoneGrouped(_tree_zone, "scene change");
 		_flush_scene_change();
 	}
 
+	GodotProfileZoneGrouped(_tree_zone, "timers and tweens");
 	process_timers(p_time, false); //go through timers
 	process_tweens(p_time, false);
 
 	flush_transform_notifications(); // Additional transforms after timers update.
 
 	// This should happen last because any processing that deletes something beforehand might expect the object to be removed in the same frame.
+	GodotProfileZoneGrouped(_tree_zone, "delete queue");
 	_flush_delete_queue();
 
+	GodotProfileZoneGrouped(_tree_zone, "accessibility");
 	_flush_accessibility_changes();
 
+	GodotProfileZoneGrouped(_tree_zone, "idle callbacks");
 	_call_idle_callbacks();
 
 #ifdef TOOLS_ENABLED
@@ -781,6 +802,7 @@ bool SceneTree::process(double p_time) {
 	// Second pass of scene tree fixed timestep interpolation.
 	// ToDo: Possibly needs another flush_transform_notifications here
 	// depending on whether there are side effects to _call_idle_callbacks().
+	GodotProfileZoneGrouped(_tree_zone, "fixed timestep interpolation, pre-draw");
 	get_scene_tree_fti().frame_update(get_root(), false);
 
 	if (_physics_interpolation_enabled) {
@@ -1217,6 +1239,7 @@ void SceneTree::_process_group(ProcessGroup *p_group, bool p_physics) {
 
 		if (p_physics) {
 			if (n->is_physics_processing_internal()) {
+				GodotProfileZoneKeyed(n->get_class_name().data_unique_pointer(), (const void *)uintptr_t(Node::NOTIFICATION_INTERNAL_PHYSICS_PROCESS), KIND_NATIVE_PROCESS, String(n->get_class_name()) + " internal physics process");
 				n->notification(Node::NOTIFICATION_INTERNAL_PHYSICS_PROCESS);
 			}
 			if (n->is_physics_processing()) {
@@ -1224,6 +1247,7 @@ void SceneTree::_process_group(ProcessGroup *p_group, bool p_physics) {
 			}
 		} else {
 			if (n->is_processing_internal()) {
+				GodotProfileZoneKeyed(n->get_class_name().data_unique_pointer(), (const void *)uintptr_t(Node::NOTIFICATION_INTERNAL_PROCESS), KIND_NATIVE_PROCESS, String(n->get_class_name()) + " internal process");
 				n->notification(Node::NOTIFICATION_INTERNAL_PROCESS);
 			}
 			if (n->is_processing()) {

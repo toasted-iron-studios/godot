@@ -207,6 +207,10 @@ void godot_cleanup_profiler();
 	ZippyLedgerZone GD_UNIQUE_NAME(__zl_script_)(ZippyLedger::keyed(m_ptr, nullptr, ZippyLedger::KIND_GDSCRIPT, [&]() { return String(m_file) + ":" + String(m_function); }))
 #define GodotProfileZoneScriptSystemCall(m_ptr, m_file, m_function, m_name, m_line)
 
+// A zone keyed by two pointers at full level; m_name (a String expression) is built once per key.
+#define GodotProfileZoneKeyed(m_key_a, m_key_b, m_kind, m_name) \
+	ZippyLedgerZone GD_UNIQUE_NAME(__zl_keyed_)(ZippyLedger::level >= ZippyLedger::LEVEL_FULL ? ZippyLedger::keyed(m_key_a, m_key_b, ZippyLedger::m_kind, [&]() { return m_name; }) : 0)
+
 #define GodotProfileAlloc(m_ptr, m_size)
 #define GodotProfileFree(m_ptr)
 
@@ -304,4 +308,9 @@ void godot_cleanup_profiler();
 // Define a zone for a system call from a script (dynamic source location).
 #define GodotProfileZoneScriptSystemCall(m_ptr, m_file, m_function, m_name, m_line)
 
+#endif
+
+#ifndef GodotProfileZoneKeyed
+// Defines a zone keyed by two pointers, named on first use (backends without keyed zones ignore it).
+#define GodotProfileZoneKeyed(m_key_a, m_key_b, m_kind, m_name)
 #endif

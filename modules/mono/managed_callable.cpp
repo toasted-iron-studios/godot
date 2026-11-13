@@ -33,6 +33,8 @@
 #include "csharp_script.h"
 #include "mono_gd/gd_mono_cache.h"
 
+#include "core/profiling/profiling.h"
+
 #ifdef GD_MONO_HOT_RELOAD
 SelfList<ManagedCallable>::List ManagedCallable::instances;
 RBMap<ManagedCallable *, Array> ManagedCallable::instances_pending_reload;
@@ -95,10 +97,28 @@ void ManagedCallable::call(const Variant **p_arguments, int p_argcount, Variant 
 
 	ERR_FAIL_NULL(delegate_handle.value);
 
+	GodotProfileZoneKeyed(trampoline, _profile_owner(), KIND_CALLABLE, _profile_name());
 	GDMonoCache::managed_callbacks.DelegateUtils_InvokeWithVariantArgs(
 			delegate_handle, trampoline, p_arguments, p_argcount, &r_return_value);
 
 	r_call_error.error = Callable::CallError::CALL_OK;
+}
+
+const void *ManagedCallable::_profile_owner() const {
+	Object *target = ObjectDB::get_instance(object_id);
+	if (target == nullptr) {
+		return nullptr;
+	}
+	ScriptInstance *instance = target->get_script_instance();
+	return instance ? (const void *)instance->get_script().ptr() : target->get_class_name().data_unique_pointer();
+}
+
+String ManagedCallable::_profile_name() const {
+	Object *target = ObjectDB::get_instance(object_id);
+	ScriptInstance *instance = target ? target->get_script_instance() : nullptr;
+	// C# scripts rarely have a global name; the script file names the class.
+	const String owner = instance ? instance->get_script()->get_path().get_file().get_basename() : (target ? String(target->get_class_name()) : String("(no target)"));
+	return owner + " C# callable";
 }
 
 void ManagedCallable::release_delegate_handle() {

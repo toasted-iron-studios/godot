@@ -61,6 +61,7 @@
 #include "core/os/mutex.h"
 #include "core/os/os.h"
 #include "core/os/thread.h"
+#include "core/profiling/profiling.h"
 #include "servers/text/text_server.h"
 
 #ifdef TOOLS_ENABLED
@@ -1698,6 +1699,7 @@ int CSharpInstance::get_method_argument_count(const StringName &p_method, bool *
 Variant CSharpInstance::callp(const StringName &p_method, const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
 	ERR_FAIL_COND_V(script.is_null(), Variant());
 
+	GodotProfileZoneKeyed(script.ptr(), p_method.data_unique_pointer(), KIND_CSHARP, script->type_info.class_name + "." + String(p_method));
 	Variant ret;
 	GDMonoCache::managed_callbacks.CSharpInstanceBridge_Call(
 			gchandle.get_intptr(), &p_method, p_args, p_argcount, &r_error, &ret);
@@ -1954,6 +1956,7 @@ void CSharpInstance::notification(int p_notification, bool p_reversed) {
 }
 
 void CSharpInstance::_call_notification(int p_notification, bool p_reversed) {
+	GodotProfileZoneKeyed(script.ptr(), (const void *)uintptr_t(p_notification + 1), KIND_CSHARP, script->type_info.class_name + "._notification(" + itos(p_notification) + ")");
 	Variant arg = p_notification;
 	const Variant *args[1] = { &arg };
 

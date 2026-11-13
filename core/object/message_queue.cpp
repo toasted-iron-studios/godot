@@ -31,6 +31,7 @@
 #include "message_queue.h"
 
 #include "core/config/project_settings.h"
+#include "core/profiling/profiling.h"
 
 #include <cstdio>
 
@@ -236,6 +237,7 @@ Error CallQueue::flush() {
 	}
 
 	flushing = true;
+	GodotProfileZone("call queue flush");
 
 	uint32_t i = 0;
 	uint32_t offset = 0;

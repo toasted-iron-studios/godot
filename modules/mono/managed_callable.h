@@ -46,6 +46,9 @@ class ManagedCallable : public CallableCustom {
 	void *trampoline = nullptr;
 	ObjectID object_id;
 
+	const void *_profile_owner() const;
+	String _profile_name() const;
+
 #ifdef GD_MONO_HOT_RELOAD
 	SelfList<ManagedCallable> self_instance = this;
 	static SelfList<ManagedCallable>::List instances;
