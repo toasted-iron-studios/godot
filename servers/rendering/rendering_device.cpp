@@ -5580,10 +5580,16 @@ RenderingDevice::DrawListID RenderingDevice::draw_list_begin(RID p_framebuffer, 
 
 	Point2i viewport_offset;
 	Point2i viewport_size = framebuffer->size;
+	Rect2 region = p_region;
+#ifdef GODOT_USE_ZIPPY
+	if (ZippyLedger::kit_active && ZippyLedger::kit_scissor()) {
+		region = Rect2(0, 0, 1, 1);
+	}
+#endif
 
-	if (p_region != Rect2() && p_region != Rect2(Vector2(), viewport_size)) { // Check custom region.
+	if (region != Rect2() && region != Rect2(Vector2(), viewport_size)) { // Check custom region.
 		Rect2i viewport(viewport_offset, viewport_size);
-		Rect2i regioni = p_region;
+		Rect2i regioni = region;
 		if (!((regioni.position.x >= viewport.position.x) && (regioni.position.y >= viewport.position.y) &&
 					((regioni.position.x + regioni.size.x) <= (viewport.position.x + viewport.size.x)) &&
 					((regioni.position.y + regioni.size.y) <= (viewport.position.y + viewport.size.y)))) {
@@ -6034,6 +6040,11 @@ void RenderingDevice::draw_list_set_push_constant(DrawListID p_list, const void 
 
 void RenderingDevice::draw_list_draw(DrawListID p_list, bool p_use_indices, uint32_t p_instances, uint32_t p_procedural_vertices) {
 	ERR_RENDER_THREAD_GUARD();
+#ifdef GODOT_USE_ZIPPY
+	if (ZippyLedger::kit_active && ZippyLedger::kit_skip_draws()) {
+		return;
+	}
+#endif
 
 	ERR_FAIL_COND(!draw_list.active);
 

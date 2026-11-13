@@ -131,6 +131,22 @@ A frame runs from one loop top to the next; the exclusive times of its zones plu
 - **Rebase hazards.** `draw_list_begin`'s attachment loop and the uniform set's `draw_trackers` change between versions; texture
   identity is the render graph tracker (its parent for slices). Indirect draws and `draw_list_begin_for_screen` are not recorded.
 
+### 7. Experiment kit overrides (measurement only)
+
+- **Purpose.** Chosen at launch while the ledger is on: `ZIPPY_KIT_SKIP_DRAWS=<text>` drops the draws of every pass recorded
+  under a renderer section whose name contains the text; `ZIPPY_KIT_SCISSOR=<text>` renders those passes into a 1x1 region;
+  `ZIPPY_KIT_GPU_DELAY=<n>` adds n clears of a 64 MiB storage buffer to every frame before it ends, timed between the renderer
+  timestamps `Zippy GPU Delay` and `Zippy GPU Delay End`. The ledger header records the settings under `kit`.
+- **Touches.** `core/profiling/zippy_ledger.{h,cpp}` (`render_marker`, `initialize`, `kit_skip_draws`, `kit_scissor`);
+  `servers/rendering/rendering_device.cpp` (`draw_list_begin` region, `draw_list_draw`);
+  `servers/rendering/rendering_server_default.cpp` (`_draw`).
+- **Upstream.** None.
+- **Verify.** With `ZIPPY_KIT_GPU_DELAY=20` a ledger's GPU frames hold a `Zippy GPU Delay` timestamp pair some milliseconds
+  apart; with `ZIPPY_KIT_SKIP_DRAWS=Render Opaque Pass` the structure records of those passes show draws 0 and the picture
+  loses its opaque geometry.
+- **Rebase hazards.** `draw_list_begin`'s region check and `draw_list_draw`'s validation move between versions; the kit acts on
+  section names, which upstream renames now and then.
+
 ## Releases
 
 Each release is a tag `4.7.2-soggy.N` on this branch with a Linux x86_64 archive (`godot-4.7.2-soggy.N-linux-x86_64.tar.gz`:

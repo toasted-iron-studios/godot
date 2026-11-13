@@ -121,6 +121,22 @@ void RenderingServerDefault::_draw(bool p_swap_buffers, double frame_step) {
 	GodotProfileZoneGrouped(_profile_zone, "canvas_render->update");
 	RSG::canvas_render->update();
 
+#if defined(GODOT_USE_ZIPPY) && defined(RD_ENABLED)
+	if (ZippyLedger::kit_gpu_delay > 0 && RD::get_singleton()) {
+		GodotProfileZoneGrouped(_profile_zone, "Zippy GPU Delay");
+		// Known GPU work for the what-if: the frame's growth against this section's GPU time.
+		static RID delay_buffer;
+		const uint32_t size = 64 * 1024 * 1024;
+		if (!delay_buffer.is_valid()) {
+			delay_buffer = RD::get_singleton()->storage_buffer_create(size);
+		}
+		RSG::utilities->capture_timestamp("Zippy GPU Delay");
+		for (int i = 0; i < ZippyLedger::kit_gpu_delay; i++) {
+			RD::get_singleton()->buffer_clear(delay_buffer, 0, size);
+		}
+		RSG::utilities->capture_timestamp("Zippy GPU Delay End");
+	}
+#endif
 	GodotProfileZoneGrouped(_profile_zone, "rasterizer->end_frame");
 	const uint64_t lt_draw1_ns = LatencyTrace::now_ns();
 	RSG::rasterizer->end_frame(p_swap_buffers);

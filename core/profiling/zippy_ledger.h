@@ -106,6 +106,14 @@ void pass_draw(uint32_t p_vertices, uint32_t p_instances, bool p_indexed);
 void pass_dispatch(uint32_t p_x, uint32_t p_y, uint32_t p_z);
 void pass_end();
 
+// Experiment kit (measurement only, chosen at launch while the ledger is on): passes of renderer sections whose name holds
+// ZIPPY_KIT_SKIP_DRAWS record no draws, those holding ZIPPY_KIT_SCISSOR draw into a 1x1 region, and ZIPPY_KIT_GPU_DELAY=N adds N
+// clears of a 64 MiB buffer to every frame, timed as the renderer section "Zippy GPU Delay".
+extern bool kit_active;
+extern int kit_gpu_delay;
+bool kit_skip_draws();
+bool kit_scissor();
+
 // A zone keyed by two pointers, named on first sight by p_name(); 0 unless full level on the main thread.
 template <typename F>
 _FORCE_INLINE_ uint32_t keyed(const void *p_a, const void *p_b, uint8_t p_kind, F &&p_name) {

@@ -75,6 +75,21 @@ static HashMap<String, uint32_t> shader_ids;
 static uint32_t current_marker = 0;
 
 bool structure_frame = false;
+bool kit_active = false;
+int kit_gpu_delay = 0;
+static std::string kit_skip_pattern;
+static std::string kit_scissor_pattern;
+static std::string current_marker_name;
+static bool marker_skips = false;
+static bool marker_scissors = false;
+
+bool kit_skip_draws() {
+	return marker_skips;
+}
+
+bool kit_scissor() {
+	return marker_scissors;
+}
 
 struct PassRecord {
 	bool compute = false;
@@ -282,6 +297,11 @@ uint32_t add_keyed(const void *p_a, const void *p_b, uint8_t p_kind, const Strin
 }
 
 void render_marker(const String &p_name) {
+	if (kit_active && tl_main && !p_name.is_empty() && p_name[0] != '<' && p_name[0] != '>') {
+		current_marker_name = p_name.utf8().get_data();
+		marker_skips = !kit_skip_pattern.empty() && current_marker_name.find(kit_skip_pattern) != std::string::npos;
+		marker_scissors = !kit_scissor_pattern.empty() && current_marker_name.find(kit_scissor_pattern) != std::string::npos;
+	}
 	if (level < LEVEL_FULL || !tl_main || p_name.is_empty()) {
 		return;
 	}
@@ -631,6 +651,13 @@ void initialize() {
 	}
 	ns_per_tick = double(monotonic_ns() - calibration_ns) / double(ticks() - calibration_ticks);
 	level = wanted;
+	const char *skip = getenv("ZIPPY_KIT_SKIP_DRAWS");
+	const char *scissor = getenv("ZIPPY_KIT_SCISSOR");
+	const char *delay = getenv("ZIPPY_KIT_GPU_DELAY");
+	kit_skip_pattern = skip ? skip : "";
+	kit_scissor_pattern = scissor ? scissor : "";
+	kit_gpu_delay = delay ? CLAMP(atoi(delay), 0, 1000) : 0;
+	kit_active = !kit_skip_pattern.empty() || !kit_scissor_pattern.empty() || kit_gpu_delay > 0;
 	self_ns_per_zone = measure_self_cost();
 	self_id = register_name("ledger frame record", __FUNCTION__, __FILE__, __LINE__, KIND_ZONE);
 	queue_words.reserve(1 << 20);
@@ -638,6 +665,13 @@ void initialize() {
 	std::string header = "{\"zippyLedger\":1,\"level\":\"";
 	header += level == LEVEL_FULL ? "full" : "light";
 	header += "\",\"clock\":\"CLOCK_MONOTONIC\",\"timeUnit\":\"ns\",\"pid\":" + std::to_string(getpid());
+	if (kit_active) {
+		header += ",\"kit\":{\"skipDraws\":";
+		json_string(header, kit_skip_pattern.c_str());
+		header += ",\"scissor\":";
+		json_string(header, kit_scissor_pattern.c_str());
+		header += ",\"gpuDelay\":" + std::to_string(kit_gpu_delay) + "}";
+	}
 	char cost[64];
 	snprintf(cost, sizeof(cost), "%.2f", self_ns_per_zone);
 	header += ",\"selfNsPerZone\":";
