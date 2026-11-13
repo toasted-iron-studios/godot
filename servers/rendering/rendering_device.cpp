@@ -8384,6 +8384,12 @@ Error RenderingDevice::initialize(RenderingContextDriver *p_context, DisplayServ
 
 	frame = 0;
 	max_timestamp_query_elements = GLOBAL_GET("debug/settings/profiler/max_timestamp_query_elements");
+#ifdef GODOT_USE_ZIPPY
+	if (ZippyLedger::level) {
+		// The ledger captures every pass of every frame.
+		max_timestamp_query_elements = MAX(max_timestamp_query_elements, 4096u);
+	}
+#endif
 
 	device = context->device_get(device_index);
 	err = driver->initialize(device_index, frame_count);
@@ -8855,6 +8861,15 @@ uint64_t RenderingDevice::get_captured_timestamp_gpu_time(uint32_t p_index) cons
 	ERR_RENDER_THREAD_GUARD_V(0);
 	ERR_FAIL_UNSIGNED_INDEX_V(p_index, frames[frame].timestamp_result_count, 0);
 	return driver->timestamp_query_result_to_time(frames[frame].timestamp_result_values[p_index]);
+}
+
+bool RenderingDevice::timestamp_calibrate(uint64_t &r_gpu_ns, uint64_t &r_cpu_monotonic_ns, uint64_t &r_deviation_ns) {
+	uint64_t gpu_ticks = 0;
+	if (!driver->timestamp_calibrate(gpu_ticks, r_cpu_monotonic_ns, r_deviation_ns)) {
+		return false;
+	}
+	r_gpu_ns = driver->timestamp_query_result_to_time(gpu_ticks);
+	return true;
 }
 
 uint64_t RenderingDevice::get_captured_timestamp_cpu_time(uint32_t p_index) const {

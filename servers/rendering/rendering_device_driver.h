@@ -827,6 +827,8 @@ public:
 	virtual void timestamp_query_pool_free(QueryPoolID p_pool_id) = 0;
 	virtual void timestamp_query_pool_get_results(QueryPoolID p_pool_id, uint32_t p_query_count, uint64_t *r_results) = 0;
 	virtual uint64_t timestamp_query_result_to_time(uint64_t p_result) = 0;
+	// A GPU timestamp and CLOCK_MONOTONIC (ns) read together; false when the driver cannot calibrate.
+	virtual bool timestamp_calibrate(uint64_t &r_gpu_ticks, uint64_t &r_cpu_monotonic_ns, uint64_t &r_deviation_ns) { return false; }
 
 	// Commands.
 	virtual void command_timestamp_query_pool_reset(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_query_count) = 0;

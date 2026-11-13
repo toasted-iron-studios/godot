@@ -694,6 +694,11 @@ Error RenderingDeviceDriverVulkan::_initialize_device_extensions() {
 	}
 
 	_register_requested_device_extension(VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME, false);
+#ifdef GODOT_USE_ZIPPY
+	if (ZippyLedger::level) {
+		_register_requested_device_extension(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME, false);
+	}
+#endif
 
 	uint32_t device_extension_count = 0;
 	VkResult err = vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &device_extension_count, nullptr);
@@ -1591,6 +1596,9 @@ Error RenderingDeviceDriverVulkan::_initialize_device(const LocalVector<VkDevice
 		device_functions.GetSwapchainImagesKHR = PFN_vkGetSwapchainImagesKHR(functions.GetDeviceProcAddr(vk_device, "vkGetSwapchainImagesKHR"));
 		device_functions.AcquireNextImageKHR = PFN_vkAcquireNextImageKHR(functions.GetDeviceProcAddr(vk_device, "vkAcquireNextImageKHR"));
 		device_functions.QueuePresentKHR = PFN_vkQueuePresentKHR(functions.GetDeviceProcAddr(vk_device, "vkQueuePresentKHR"));
+		if (enabled_device_extension_names.has(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME)) {
+			device_functions.GetCalibratedTimestampsEXT = PFN_vkGetCalibratedTimestampsEXT(functions.GetDeviceProcAddr(vk_device, "vkGetCalibratedTimestampsEXT"));
+		}
 
 		if (enabled_device_extension_names.has(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME)) {
 			device_functions.CreateRenderPass2KHR = PFN_vkCreateRenderPass2KHR(functions.GetDeviceProcAddr(vk_device, "vkCreateRenderPass2KHR"));
@@ -6857,6 +6865,26 @@ void RenderingDeviceDriverVulkan::timestamp_query_pool_free(QueryPoolID p_pool_i
 
 void RenderingDeviceDriverVulkan::timestamp_query_pool_get_results(QueryPoolID p_pool_id, uint32_t p_query_count, uint64_t *r_results) {
 	vkGetQueryPoolResults(vk_device, (VkQueryPool)p_pool_id.id, 0, p_query_count, sizeof(uint64_t) * p_query_count, r_results, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+}
+
+bool RenderingDeviceDriverVulkan::timestamp_calibrate(uint64_t &r_gpu_ticks, uint64_t &r_cpu_monotonic_ns, uint64_t &r_deviation_ns) {
+	if (device_functions.GetCalibratedTimestampsEXT == nullptr) {
+		return false;
+	}
+	VkCalibratedTimestampInfoEXT infos[2] = {};
+	infos[0].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
+	infos[0].timeDomain = VK_TIME_DOMAIN_DEVICE_EXT;
+	infos[1].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
+	infos[1].timeDomain = VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT;
+	uint64_t values[2] = {};
+	uint64_t deviation = 0;
+	if (device_functions.GetCalibratedTimestampsEXT(vk_device, 2, infos, values, &deviation) != VK_SUCCESS) {
+		return false;
+	}
+	r_gpu_ticks = values[0];
+	r_cpu_monotonic_ns = values[1];
+	r_deviation_ns = deviation;
+	return true;
 }
 
 uint64_t RenderingDeviceDriverVulkan::timestamp_query_result_to_time(uint64_t p_result) {

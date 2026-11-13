@@ -79,6 +79,11 @@ void RenderingServerDefault::_draw(bool p_swap_buffers, double frame_step) {
 	const uint64_t lt_draw_id = LatencyTrace::pop_draw_id();
 	LatencyTrace::current_draw_id.store(lt_draw_id);
 	const uint64_t lt_draw0_ns = LatencyTrace::now_ns();
+#ifdef GODOT_USE_ZIPPY
+	if (ZippyLedger::level) {
+		RSG::utilities->capturing_timestamps = true;
+	}
+#endif
 	GodotProfileZoneGroupedFirst(_profile_zone, "rasterizer->begin_frame");
 	RSG::rasterizer->begin_frame(frame_step);
 
@@ -170,6 +175,9 @@ void RenderingServerDefault::_draw(bool p_swap_buffers, double frame_step) {
 		}
 
 		frame_profile = new_profile;
+#ifdef GODOT_USE_ZIPPY
+		_ledger_gpu_frame();
+#endif
 	}
 
 	frame_profile_frame = RSG::utilities->get_captured_timestamps_frame();
@@ -221,6 +229,38 @@ void RenderingServerDefault::_draw(bool p_swap_buffers, double frame_step) {
 	GodotProfileZoneGrouped(_profile_zone, "memory_info");
 	RSG::utilities->update_memory_info();
 }
+
+#ifdef GODOT_USE_ZIPPY
+void RenderingServerDefault::_ledger_gpu_frame() {
+	if (!ZippyLedger::level) {
+		return;
+	}
+	const uint32_t count = RSG::utilities->get_captured_timestamps_count();
+	LocalVector<String> names;
+	LocalVector<uint64_t> cpu_usec;
+	LocalVector<uint64_t> gpu_ns;
+	names.resize(count);
+	cpu_usec.resize(count);
+	gpu_ns.resize(count);
+	for (uint32_t i = 0; i < count; i++) {
+		names[i] = RSG::utilities->get_captured_timestamp_name(i);
+		cpu_usec[i] = RSG::utilities->get_captured_timestamp_cpu_time(i);
+		gpu_ns[i] = RSG::utilities->get_captured_timestamp_gpu_time(i);
+	}
+	ZippyLedger::gpu_frame(RSG::utilities->get_captured_timestamps_frame(), count, names.ptr(), cpu_usec.ptr(), gpu_ns.ptr());
+#ifdef RD_ENABLED
+	// GPU time is mapped onto CLOCK_MONOTONIC with a calibrated pair taken every 60 frames.
+	static uint32_t frames_to_calibration = 0;
+	uint64_t calibrated_gpu_ns = 0;
+	uint64_t calibrated_cpu_ns = 0;
+	uint64_t deviation_ns = 0;
+	if (frames_to_calibration-- == 0 && RD::get_singleton() && RD::get_singleton()->timestamp_calibrate(calibrated_gpu_ns, calibrated_cpu_ns, deviation_ns)) {
+		frames_to_calibration = 60;
+		ZippyLedger::gpu_calibration(calibrated_gpu_ns, calibrated_cpu_ns, deviation_ns);
+	}
+#endif
+}
+#endif
 
 void RenderingServerDefault::_run_post_draw_steps() {
 	while (frame_drawn_callbacks.front()) {

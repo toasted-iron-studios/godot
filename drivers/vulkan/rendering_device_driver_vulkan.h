@@ -115,6 +115,7 @@ class RenderingDeviceDriverVulkan : public RenderingDeviceDriver {
 		PFN_vkGetSwapchainImagesKHR GetSwapchainImagesKHR = nullptr;
 		PFN_vkAcquireNextImageKHR AcquireNextImageKHR = nullptr;
 		PFN_vkQueuePresentKHR QueuePresentKHR = nullptr;
+		PFN_vkGetCalibratedTimestampsEXT GetCalibratedTimestampsEXT = nullptr;
 		PFN_vkCreateRenderPass2KHR CreateRenderPass2KHR = nullptr;
 		PFN_vkCmdEndRenderPass2KHR EndRenderPass2KHR = nullptr;
 
@@ -757,6 +758,7 @@ public:
 	virtual void timestamp_query_pool_free(QueryPoolID p_pool_id) override final;
 	virtual void timestamp_query_pool_get_results(QueryPoolID p_pool_id, uint32_t p_query_count, uint64_t *r_results) override final;
 	virtual uint64_t timestamp_query_result_to_time(uint64_t p_result) override final;
+	virtual bool timestamp_calibrate(uint64_t &r_gpu_ticks, uint64_t &r_cpu_monotonic_ns, uint64_t &r_deviation_ns) override final;
 
 	// Commands.
 	virtual void command_timestamp_query_pool_reset(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_query_count) override final;

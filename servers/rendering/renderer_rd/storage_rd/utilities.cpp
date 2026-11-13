@@ -30,6 +30,8 @@
 
 #include "utilities.h"
 
+#include "core/profiling/profiling.h"
+
 #include "servers/rendering/renderer_rd/environment/fog.h"
 #include "servers/rendering/renderer_rd/environment/gi.h"
 #include "servers/rendering/renderer_rd/storage_rd/light_storage.h"
@@ -220,10 +222,14 @@ void Utilities::visibility_notifier_call(RID p_notifier, bool p_enter, bool p_de
 /* TIMING */
 
 void Utilities::capture_timestamps_begin() {
-	RD::get_singleton()->capture_timestamp("Frame Begin");
+	capture_timestamp("Frame Begin");
 }
 
 void Utilities::capture_timestamp(const String &p_name) {
+#ifdef GODOT_USE_ZIPPY
+	// The CPU zone recording a pass is named as the GPU timestamp that begins it.
+	ZippyLedger::render_marker(p_name);
+#endif
 	RD::get_singleton()->capture_timestamp(p_name);
 }
 
