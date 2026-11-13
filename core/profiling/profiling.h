@@ -210,6 +210,10 @@ void godot_cleanup_profiler();
 // A zone keyed by two pointers at full level; m_name (a String expression) is built once per key.
 #define GodotProfileZoneKeyed(m_key_a, m_key_b, m_kind, m_name) \
 	ZippyLedgerZone GD_UNIQUE_NAME(__zl_keyed_)(ZippyLedger::level >= ZippyLedger::LEVEL_FULL ? ZippyLedger::keyed(m_key_a, m_key_b, ZippyLedger::m_kind, [&]() { return m_name; }) : 0)
+// An instant event timed from GodotProfileEventBegin to GodotProfileEventEnd, from any thread.
+#define GodotProfileEventBegin(m_var, m_kind, m_counter) ZippyLedgerEvent m_var(m_kind, ZippyLedger::m_counter)
+#define GodotProfileEventEnd(m_var, m_name) m_var.finish([&]() { return String(m_name); })
+#define GodotProfileUpload(m_texture, m_bytes) ZippyLedger::upload(m_texture, m_bytes)
 
 #define GodotProfileAlloc(m_ptr, m_size)
 #define GodotProfileFree(m_ptr)
@@ -313,4 +317,9 @@ void godot_cleanup_profiler();
 #ifndef GodotProfileZoneKeyed
 // Defines a zone keyed by two pointers, named on first use (backends without keyed zones ignore it).
 #define GodotProfileZoneKeyed(m_key_a, m_key_b, m_kind, m_name)
+// Begins and ends an instant event (pipeline compile, resource load) of a kind, counted per frame.
+#define GodotProfileEventBegin(m_var, m_kind, m_counter)
+#define GodotProfileEventEnd(m_var, m_name)
+// Counts bytes uploaded to a buffer or texture.
+#define GodotProfileUpload(m_texture, m_bytes)
 #endif

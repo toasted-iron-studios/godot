@@ -858,6 +858,7 @@ RenderingDevice::Buffer *RenderingDevice::_get_buffer_from_owner(RID p_buffer) {
 }
 
 Error RenderingDevice::_buffer_initialize(Buffer *p_buffer, Span<uint8_t> p_data, uint32_t p_required_align) {
+	GodotProfileUpload(false, p_data.size());
 	uint32_t transfer_worker_offset;
 	TransferWorker *transfer_worker = _acquire_transfer_worker(p_data.size(), p_required_align, transfer_worker_offset);
 	p_buffer->transfer_worker_index = transfer_worker->index;
@@ -1087,6 +1088,7 @@ Error RenderingDevice::buffer_copy(RID p_src_buffer, RID p_dst_buffer, uint32_t 
 
 Error RenderingDevice::_buffer_update(Buffer *p_buffer, RID p_buffer_id, uint32_t p_offset, uint32_t p_size, const void *p_data) {
 	copy_bytes_count += p_size;
+	GodotProfileUpload(false, p_size);
 
 	if (p_buffer->usage.has_flag(RDD::BUFFER_USAGE_DYNAMIC_PERSISTENT_BIT)) {
 		uint8_t *dst_data = driver->buffer_persistent_map_advance(p_buffer->driver_id, frames_drawn);
@@ -1547,6 +1549,11 @@ RID RenderingDevice::texture_buffer_create(uint32_t p_size_elements, DataFormat 
 /*****************/
 
 RID RenderingDevice::texture_create(const TextureFormat &p_format, const TextureView &p_view, const Vector<Vector<uint8_t>> &p_data) {
+#ifdef GODOT_USE_ZIPPY
+	for (const Vector<uint8_t> &layer : p_data) {
+		GodotProfileUpload(true, layer.size());
+	}
+#endif
 	// Some adjustments will happen.
 	TextureFormat format = p_format;
 
@@ -2261,6 +2268,7 @@ Error RenderingDevice::texture_update(RID p_texture, uint32_t p_layer, const Vec
 
 	Texture *texture = texture_owner.get_or_null(p_texture);
 	ERR_FAIL_NULL_V(texture, ERR_INVALID_PARAMETER);
+	GodotProfileUpload(true, p_data.size());
 
 	if (texture->owner != RID()) {
 		p_texture = texture->owner;
@@ -4939,6 +4947,7 @@ RID RenderingDevice::render_pipeline_create(RID p_shader, FramebufferFormatID p_
 	}
 
 	RenderPipeline pipeline;
+	GodotProfileEventBegin(pipeline_event, "pipeline.render", COUNTER_PIPELINE_COMPILES);
 	pipeline.driver_id = driver->render_pipeline_create(
 			shader->driver_id,
 			driver_vertex_format,
@@ -4952,6 +4961,7 @@ RID RenderingDevice::render_pipeline_create(RID p_shader, FramebufferFormatID p_
 			fb_format.render_pass,
 			p_for_render_pass,
 			p_specialization_constants);
+	GodotProfileEventEnd(pipeline_event, shader->name);
 
 	// Don't print error when it's expected.
 	if (unlikely(!pipeline.driver_id && driver->get_driver_workarounds().dont_print_on_render_pipeline_creation_failure)) {
@@ -5045,7 +5055,9 @@ RID RenderingDevice::compute_pipeline_create(RID p_shader, const Vector<Pipeline
 	}
 
 	ComputePipeline pipeline;
+	GodotProfileEventBegin(pipeline_event, "pipeline.compute", COUNTER_PIPELINE_COMPILES);
 	pipeline.driver_id = driver->compute_pipeline_create(shader->driver_id, p_specialization_constants);
+	GodotProfileEventEnd(pipeline_event, shader->name);
 	ERR_FAIL_COND_V(!pipeline.driver_id, RID());
 
 	if (pipeline_cache_enabled) {

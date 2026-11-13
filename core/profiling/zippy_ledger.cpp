@@ -278,6 +278,18 @@ void count(Counter p_counter, uint64_t p_value) {
 	}
 }
 
+void upload(bool p_texture, uint64_t p_bytes) {
+	if (!level) {
+		return;
+	}
+	count(p_texture ? COUNTER_UPLOAD_TEXTURE_BYTES : COUNTER_UPLOAD_BUFFER_BYTES, p_bytes);
+	count(p_texture ? COUNTER_UPLOAD_TEXTURES : COUNTER_UPLOAD_BUFFERS, 1);
+	if (p_bytes >= 256 * 1024) {
+		const uint64_t now = monotonic_ns();
+		event(p_texture ? "upload.texture" : "upload.buffer", String(), now, now, p_bytes);
+	}
+}
+
 void event(const char *p_kind, const String &p_name, uint64_t p_begin_ns, uint64_t p_end_ns, uint64_t p_value) {
 	if (!level) {
 		return;

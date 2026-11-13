@@ -84,6 +84,7 @@ uint32_t add_keyed(const void *p_a, const void *p_b, uint8_t p_kind, const Strin
 void render_marker(const String &p_name);
 
 void count(Counter p_counter, uint64_t p_value);
+void upload(bool p_texture, uint64_t p_bytes);
 void event(const char *p_kind, const String &p_name, uint64_t p_begin_ns, uint64_t p_end_ns, uint64_t p_value);
 void gpu_frame(uint64_t p_frame, uint32_t p_count, const String *p_names, const uint64_t *p_cpu_usec, const uint64_t *p_gpu_ns);
 void gpu_calibration(uint64_t p_gpu_ns, uint64_t p_cpu_ns, uint64_t p_deviation_ns);
@@ -143,11 +144,12 @@ public:
 // An event timed from construction to destruction on any thread; the name is built only when the ledger is on.
 class ZippyLedgerEvent {
 	const char *kind;
+	ZippyLedger::Counter counter;
 	uint64_t begin = 0;
 
 public:
-	_FORCE_INLINE_ explicit ZippyLedgerEvent(const char *p_kind) :
-			kind(p_kind) {
+	_FORCE_INLINE_ ZippyLedgerEvent(const char *p_kind, ZippyLedger::Counter p_counter) :
+			kind(p_kind), counter(p_counter) {
 		if (unlikely(ZippyLedger::level)) {
 			begin = ZippyLedger::monotonic_ns();
 		}
@@ -156,6 +158,7 @@ public:
 	_FORCE_INLINE_ void finish(F &&p_name, uint64_t p_value = 0) {
 		if (unlikely(begin)) {
 			ZippyLedger::event(kind, p_name(), begin, ZippyLedger::monotonic_ns(), p_value);
+			ZippyLedger::count(counter, 1);
 			begin = 0;
 		}
 	}

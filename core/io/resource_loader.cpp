@@ -43,6 +43,7 @@
 #include "core/os/condition_variable.h"
 #include "core/os/os.h"
 #include "core/os/safe_binary_mutex.h"
+#include "core/profiling/profiling.h"
 #include "core/string/print_string.h"
 #include "core/string/translation_server.h"
 #include "core/templates/rb_set.h"
@@ -286,7 +287,9 @@ Ref<Resource> ResourceLoader::_load(const String &p_path, const String &p_origin
 			continue;
 		}
 		found = true;
+		GodotProfileEventBegin(load_event, "load", COUNTER_LOADS);
 		res = loader[i]->load(p_path, original_path, r_error, p_use_sub_threads, r_progress, p_cache_mode);
+		GodotProfileEventEnd(load_event, p_path);
 		if (res.is_valid()) {
 			break;
 		}
