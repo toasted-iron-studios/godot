@@ -110,14 +110,16 @@ const void *ManagedCallable::_profile_owner() const {
 		return nullptr;
 	}
 	ScriptInstance *instance = target->get_script_instance();
-	return instance ? (const void *)instance->get_script().ptr() : target->get_class_name().data_unique_pointer();
+	const Ref<Script> script = instance ? instance->get_script() : Ref<Script>();
+	return script.is_valid() ? (const void *)script.ptr() : target->get_class_name().data_unique_pointer();
 }
 
 String ManagedCallable::_profile_name() const {
 	Object *target = ObjectDB::get_instance(object_id);
 	ScriptInstance *instance = target ? target->get_script_instance() : nullptr;
 	// C# scripts rarely have a global name; the script file names the class.
-	const String owner = instance ? instance->get_script()->get_path().get_file().get_basename() : (target ? String(target->get_class_name()) : String("(no target)"));
+	const Ref<Script> script = instance ? instance->get_script() : Ref<Script>();
+	const String owner = script.is_valid() ? script->get_path().get_file().get_basename() : (target ? String(target->get_class_name()) : String("(no target)"));
 	return owner + " C# callable";
 }
 

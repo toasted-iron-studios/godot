@@ -1956,7 +1956,8 @@ void CSharpInstance::notification(int p_notification, bool p_reversed) {
 }
 
 void CSharpInstance::_call_notification(int p_notification, bool p_reversed) {
-	GodotProfileZoneKeyed(script.ptr(), (const void *)uintptr_t(p_notification + 1), KIND_CSHARP, script->type_info.class_name + "._notification(" + itos(p_notification) + ")");
+	// A notification can arrive while the instance has no script yet (or no longer); the row is then named for no class.
+	GodotProfileZoneKeyed(script.ptr(), (const void *)uintptr_t(p_notification + 1), KIND_CSHARP, (script.is_valid() ? script->type_info.class_name : String("(no script)")) + "._notification(" + itos(p_notification) + ")");
 	Variant arg = p_notification;
 	const Variant *args[1] = { &arg };
 

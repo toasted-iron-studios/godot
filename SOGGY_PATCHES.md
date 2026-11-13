@@ -82,6 +82,9 @@ A frame runs from one loop top to the next; the exclusive times of its zones plu
 - **Upstream.** The engine's C# profiling hooks are empty stubs in `csharp_script.h`; no equivalent or PR found.
 - **Verify.** A C# project at full level writes name records of kind `csharp` named `Class._process` and `native-process`
   records such as `AnimationTree internal process`; their calls per frame match the node counts.
+- **Fix (commit after patch 7).** A C# instance can receive a notification while it has no script (or a callable's target no
+  longer has one); the keyed zones then name the row "(no script)" or the target's class instead of reading the null script.
+  Found as an intermittent startup crash (signal 11) at full level.
 - **Rebase hazards.** `SceneTree::process` reorders phases between versions; keep one grouped zone per phase.
   `CSharpScript::type_info.class_name` and `ManagedCallable`'s fields are internal and may be renamed.
 
