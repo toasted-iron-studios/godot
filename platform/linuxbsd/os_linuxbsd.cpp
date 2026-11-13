@@ -30,6 +30,8 @@
 
 #include "os_linuxbsd.h"
 
+#include "core/os/latency_trace.h"
+
 #include "core/io/certs_compressed.gen.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
@@ -997,6 +999,7 @@ void OS_LinuxBSD::run() {
 	while (true) {
 		GodotProfileFrameMark;
 		GodotProfileZone("OS_LinuxBSD::run");
+		LatencyTrace::events_ns.store(LatencyTrace::now_ns());
 		DisplayServer::get_singleton()->process_events(); // get rid of pending events
 #ifdef SDL_ENABLED
 		if (joypad_sdl) {

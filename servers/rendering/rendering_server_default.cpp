@@ -31,6 +31,8 @@
 #include "rendering_server_default.h"
 
 #include "core/object/callable_mp.h"
+#include "core/config/engine.h"
+#include "core/os/latency_trace.h"
 #include "core/os/os.h"
 #include "core/profiling/profiling.h"
 #include "servers/display/display_server.h"
@@ -74,6 +76,9 @@ void RenderingServerDefault::request_frame_drawn_callback(const Callable &p_call
 }
 
 void RenderingServerDefault::_draw(bool p_swap_buffers, double frame_step) {
+	const uint64_t lt_draw_id = LatencyTrace::pop_draw_id();
+	LatencyTrace::current_draw_id.store(lt_draw_id);
+	const uint64_t lt_draw0_ns = LatencyTrace::now_ns();
 	GodotProfileZoneGroupedFirst(_profile_zone, "rasterizer->begin_frame");
 	RSG::rasterizer->begin_frame(frame_step);
 
@@ -112,7 +117,12 @@ void RenderingServerDefault::_draw(bool p_swap_buffers, double frame_step) {
 	RSG::canvas_render->update();
 
 	GodotProfileZoneGrouped(_profile_zone, "rasterizer->end_frame");
+	const uint64_t lt_draw1_ns = LatencyTrace::now_ns();
 	RSG::rasterizer->end_frame(p_swap_buffers);
+	if (LatencyTrace::enabled()) {
+		// R frame draw_start end_frame_start end_frame_done
+		LatencyTrace::log("R %llu %llu %llu %llu\n", (unsigned long long)lt_draw_id, (unsigned long long)lt_draw0_ns, (unsigned long long)lt_draw1_ns, (unsigned long long)LatencyTrace::now_ns());
+	}
 
 #ifndef XR_DISABLED
 	if (xr_server != nullptr) {
@@ -300,6 +310,13 @@ void RenderingServerDefault::finish() {
 	} else {
 		_finish();
 	}
+#ifdef RD_ENABLED
+	// The display server destroys the main device after the render worker
+	// has stopped. Return ownership to the calling (main) thread first.
+	if (RenderingDevice *rd = RenderingDevice::get_singleton()) {
+		rd->make_current();
+	}
+#endif
 }
 
 /* STATUS INFORMATION */
@@ -445,6 +462,7 @@ void RenderingServerDefault::draw(bool p_present, double frame_step) {
 	// Needs to be done before changes is reset to 0, to not force the editor to redraw.
 	RS::get_singleton()->emit_signal(SNAME("frame_pre_draw"));
 	changes = 0;
+	LatencyTrace::push_draw_id(Engine::get_singleton()->get_frames_drawn());
 	if (create_thread) {
 		command_queue.push(this, &RenderingServerDefault::_draw, p_present, frame_step);
 	} else {

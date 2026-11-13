@@ -32,11 +32,88 @@
 
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
+#include "core/os/latency_trace.h"
 #include "core/os/os.h"
 #include "core/templates/fixed_vector.h"
 #include "drivers/vulkan/vulkan_hooks.h"
 
 #include <thirdparty/misc/smolv.h>
+
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
+#include <vector>
+
+// Local measurement patch: an empty fence-only submit after each present signals when the queue has
+// finished that frame; a waiter thread logs "G frame present_ns gpu_done_ns".
+namespace {
+struct LatencyGpuMarker {
+	VkFence fence;
+	uint64_t frame;
+	uint64_t submit_ns;
+};
+
+struct LatencyGpuTracker {
+	VkDevice device = VK_NULL_HANDLE;
+	std::mutex mutex;
+	std::condition_variable cv;
+	std::deque<LatencyGpuMarker> pending;
+	std::vector<VkFence> free_fences;
+	bool started = false;
+
+	void wait_loop() {
+		uint64_t completed = 0;
+		while (true) {
+			LatencyGpuMarker marker;
+			{
+				std::unique_lock<std::mutex> lock(mutex);
+				cv.wait(lock, [this] { return !pending.empty(); });
+				marker = pending.front();
+				pending.pop_front();
+			}
+			vkWaitForFences(device, 1, &marker.fence, VK_TRUE, UINT64_MAX);
+			const uint64_t done_ns = LatencyTrace::now_ns();
+			vkResetFences(device, 1, &marker.fence);
+			LatencyTrace::log("G %llu %llu %llu\n", (unsigned long long)marker.frame, (unsigned long long)marker.submit_ns, (unsigned long long)done_ns);
+			if ((++completed & 63) == 0) {
+				LatencyTrace::flush();
+			}
+			std::lock_guard<std::mutex> lock(mutex);
+			free_fences.push_back(marker.fence);
+		}
+	}
+
+	VkFence take_fence(VkDevice p_device) {
+		std::lock_guard<std::mutex> lock(mutex);
+		if (!started) {
+			device = p_device;
+			started = true;
+			std::thread(&LatencyGpuTracker::wait_loop, this).detach();
+		}
+		if (!free_fences.empty()) {
+			VkFence fence = free_fences.back();
+			free_fences.pop_back();
+			return fence;
+		}
+		VkFenceCreateInfo create_info = {};
+		create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		VkFence fence = VK_NULL_HANDLE;
+		vkCreateFence(p_device, &create_info, nullptr, &fence);
+		return fence;
+	}
+
+	void submitted(VkFence p_fence, uint64_t p_frame, uint64_t p_submit_ns) {
+		{
+			std::lock_guard<std::mutex> lock(mutex);
+			pending.push_back({ p_fence, p_frame, p_submit_ns });
+		}
+		cv.notify_one();
+	}
+};
+
+LatencyGpuTracker latency_gpu_tracker;
+} //namespace
 
 #if defined(SWAPPY_FRAME_PACING_ENABLED)
 #include "platform/android/java_godot_wrapper.h"
@@ -3321,8 +3398,16 @@ Error RenderingDeviceDriverVulkan::command_queue_execute_and_present(CommandQueu
 #else
 		err = device_functions.QueuePresentKHR(device_queue.queue, &present_info);
 #endif
+		const uint64_t lt_present_ns = LatencyTrace::now_ns();
+		VkFence lt_fence = LatencyTrace::enabled() ? latency_gpu_tracker.take_fence(vk_device) : VK_NULL_HANDLE;
+		if (lt_fence != VK_NULL_HANDLE) {
+			vkQueueSubmit(device_queue.queue, 0, nullptr, lt_fence);
+		}
 
 		device_queue.submit_mutex.unlock();
+		if (lt_fence != VK_NULL_HANDLE) {
+			latency_gpu_tracker.submitted(lt_fence, LatencyTrace::current_draw_id.load(), lt_present_ns);
+		}
 
 		// Set the index to an invalid value. If any of the swap chains returned out of date, indicate it should be resized the next time it's acquired.
 		bool any_result_is_out_of_date = false;

@@ -31,6 +31,12 @@
 #include "main.h"
 
 #include "core/config/engine.h"
+#include "core/os/latency_trace.h"
+
+#include <sys/prctl.h>
+#include <cerrno>
+#include <cstdlib>
+#include <ctime>
 #include "core/config/project_settings.h"
 #include "core/core_globals.h"
 #include "core/crypto/crypto.h"
@@ -278,6 +284,31 @@ static bool debug_mute_audio = false;
 #endif
 static int max_fps = -1;
 static int frame_delay = 0;
+
+// Experimental latency pacer (local measurement patch).
+static int64_t latency_pacing_target_ns() {
+	static const int64_t target = [] {
+		const char *value = getenv("GODOT_LATENCY_PACING");
+		return (value != nullptr && value[0] != '\0') ? int64_t(atoll(value)) * 1000 : int64_t(-1);
+	}();
+	return target;
+}
+static int64_t latency_pacing_sleep_ns = 0;
+
+static void latency_pacing_sleep(int64_t p_ns) {
+	static bool slack_set = false;
+	if (!slack_set) {
+		prctl(PR_SET_TIMERSLACK, 1000UL, 0, 0, 0);
+		slack_set = true;
+	}
+	timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	int64_t ns = int64_t(ts.tv_nsec) + p_ns;
+	ts.tv_sec += ns / 1000000000;
+	ts.tv_nsec = ns % 1000000000;
+	while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, nullptr) == EINTR) {
+	}
+}
 static int audio_output_latency = 0;
 static bool disable_render_loop = false;
 static int fixed_fps = -1;
@@ -4922,6 +4953,8 @@ bool Main::iteration() {
 	GodotProfileZone("Main::iteration");
 	GodotProfileZoneGroupedFirst(_profile_zone, "prepare");
 	iterating++;
+	const uint64_t lt_iter_ns = LatencyTrace::now_ns();
+	const uint64_t lt_frame = Engine::get_singleton()->get_frames_drawn();
 
 	const uint64_t ticks = OS::get_singleton()->get_ticks_usec();
 	Engine::get_singleton()->_frame_ticks = ticks;
@@ -5074,7 +5107,16 @@ bool Main::iteration() {
 #endif // NAVIGATION_3D_DISABLED
 
 	GodotProfileZoneGrouped(_profile_zone, "RenderingServer::sync");
+	const uint64_t lt_sync0_ns = LatencyTrace::now_ns();
 	RenderingServer::get_singleton()->sync(); //sync if still drawing from previous frames.
+	const uint64_t lt_sync1_ns = LatencyTrace::now_ns();
+	if (latency_pacing_target_ns() >= 0) {
+		// Shrink the main thread's wait for the render thread and the GPU toward the target; back off at once when short.
+		const int64_t waited = int64_t(lt_sync1_ns - lt_sync0_ns) + LatencyTrace::last_fence_wait_ns.load();
+		const int64_t error = waited - latency_pacing_target_ns();
+		latency_pacing_sleep_ns += error > 0 ? error / 4 : error;
+		latency_pacing_sleep_ns = CLAMP(latency_pacing_sleep_ns, int64_t(0), int64_t(20000000));
+	}
 
 	GodotProfileZoneGrouped(_profile_zone, "RenderingServer::draw");
 	const bool has_pending_resources_for_processing = RD::get_singleton() && RD::get_singleton()->has_pending_resources_for_processing();
@@ -5094,6 +5136,11 @@ bool Main::iteration() {
 			Engine::get_singleton()->increment_frames_drawn();
 			force_redraw_requested = false;
 		}
+	}
+
+	if (LatencyTrace::enabled()) {
+		// M frame events iter sync0 sync1 draw_returned
+		LatencyTrace::log("M %llu %llu %llu %llu %llu %llu %lld %lld\n", (unsigned long long)lt_frame, (unsigned long long)LatencyTrace::events_ns.load(), (unsigned long long)lt_iter_ns, (unsigned long long)lt_sync0_ns, (unsigned long long)lt_sync1_ns, (unsigned long long)LatencyTrace::now_ns(), (long long)latency_pacing_sleep_ns, (long long)LatencyTrace::last_fence_wait_ns.load());
 	}
 
 	process_ticks = OS::get_singleton()->get_ticks_usec() - process_begin;
@@ -5176,6 +5223,9 @@ bool Main::iteration() {
 
 	GodotProfileZoneGrouped(_profile_zone, "OS::add_frame_delay");
 	OS::get_singleton()->add_frame_delay(DisplayServer::get_singleton()->window_can_draw(), wake_for_events);
+	if (latency_pacing_target_ns() >= 0 && latency_pacing_sleep_ns > 0) {
+		latency_pacing_sleep(latency_pacing_sleep_ns);
+	}
 
 #ifdef TOOLS_ENABLED
 	if (auto_build_solutions) {

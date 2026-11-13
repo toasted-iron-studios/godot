@@ -32,6 +32,7 @@
 #include "rendering_device.compat.inc"
 
 #include "core/config/engine.h"
+#include "core/os/latency_trace.h"
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
@@ -7869,16 +7870,23 @@ void RenderingDevice::swap_buffers(bool p_present) {
 	ERR_RENDER_THREAD_GUARD();
 
 	GodotProfileZoneGroupedFirst(_profile_zone, "_end_frame");
+	const uint64_t lt_end0_ns = LatencyTrace::now_ns();
 	_end_frame();
 
 	GodotProfileZoneGrouped(_profile_zone, "_execute_frame");
+	const uint64_t lt_exec0_ns = LatencyTrace::now_ns();
 	_execute_frame(p_present);
+	const uint64_t lt_exec1_ns = LatencyTrace::now_ns();
 
 	// Advance to the next frame and begin recording again.
 	frame = (frame + 1) % frames.size();
 
 	GodotProfileZoneGrouped(_profile_zone, "_begin_frame");
 	_begin_frame(true);
+	if (LatencyTrace::enabled()) {
+		// W frame end_frame_start execute_start execute_done(submitted+presented) next_frame_begun(after fence stall)
+		LatencyTrace::log("W %llu %llu %llu %llu %llu\n", (unsigned long long)LatencyTrace::current_draw_id.load(), (unsigned long long)lt_end0_ns, (unsigned long long)lt_exec0_ns, (unsigned long long)lt_exec1_ns, (unsigned long long)LatencyTrace::now_ns());
+	}
 }
 
 void RenderingDevice::submit() {
@@ -8216,7 +8224,9 @@ void RenderingDevice::_stall_for_frame(uint32_t p_frame) {
 
 	if (frames[p_frame].fence_signaled) {
 		GodotProfileZoneGroupedFirst(_profile_zone, "driver->fence_wait");
+		const uint64_t lt_fence0_ns = LatencyTrace::now_ns();
 		driver->fence_wait(frames[p_frame].fence);
+		LatencyTrace::last_fence_wait_ns.store(int64_t(LatencyTrace::now_ns() - lt_fence0_ns));
 		frames[p_frame].fence_signaled = false;
 
 		// Flush any pending requests for asynchronous buffer downloads.
