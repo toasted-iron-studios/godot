@@ -5658,6 +5658,19 @@ RenderingDevice::DrawListID RenderingDevice::draw_list_begin(RID p_framebuffer, 
 		operations[i] = operation;
 		clear_values[i] = clear_value;
 	}
+#ifdef GODOT_USE_ZIPPY
+	if (ZippyLedger::structure_frame) {
+		ZippyLedger::pass_begin(false, viewport_size.x, viewport_size.y);
+		for (int i = 0; i < framebuffer->texture_ids.size(); i++) {
+			const Texture *texture = texture_owner.get_or_null(framebuffer->texture_ids[i]);
+			if (texture != nullptr) {
+				const bool depth = texture->usage_flags & (TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | TEXTURE_USAGE_DEPTH_RESOLVE_ATTACHMENT_BIT);
+				const ZippyLedger::Load load = operations[i] == RDG::ATTACHMENT_OPERATION_CLEAR ? ZippyLedger::LOAD_CLEAR : operations[i] == RDG::ATTACHMENT_OPERATION_IGNORE ? ZippyLedger::LOAD_IGNORE : ZippyLedger::LOAD_LOAD;
+				ZippyLedger::pass_attachment(_ledger_texture_key(texture->draw_tracker), FORMAT_NAMES[texture->format], uint32_t(1) << texture->samples, load, depth);
+			}
+		}
+	}
+#endif
 
 	draw_graph.add_draw_list_begin(framebuffer->framebuffer_cache, Rect2i(viewport_offset, viewport_size), operations, clear_values, stages, p_breadcrumb);
 	draw_graph.add_draw_list_usages(resource_trackers, resource_usages);
@@ -5712,6 +5725,12 @@ void RenderingDevice::draw_list_bind_render_pipeline(DrawListID p_list, RID p_re
 	ERR_FAIL_NULL(pipeline);
 #ifdef DEBUG_ENABLED
 	ERR_FAIL_COND(pipeline->validation.framebuffer_format != draw_list_framebuffer_format && pipeline->validation.render_pass != draw_list_current_subpass);
+#endif
+#ifdef GODOT_USE_ZIPPY
+	if (ZippyLedger::structure_frame) {
+		const Shader *shader = shader_owner.get_or_null(pipeline->shader);
+		ZippyLedger::pass_shader(shader ? shader->name : String("?"));
+	}
 #endif
 
 	if (p_render_pipeline == draw_list.state.pipeline) {
@@ -5802,6 +5821,9 @@ void RenderingDevice::draw_list_bind_uniform_set(DrawListID p_list, RID p_unifor
 
 	const UniformSet *uniform_set = uniform_set_owner.get_or_null(p_uniform_set);
 	ERR_FAIL_NULL(uniform_set);
+#ifdef GODOT_USE_ZIPPY
+	_ledger_pass_textures(uniform_set);
+#endif
 
 	if (p_index > draw_list.state.set_count) {
 		draw_list.state.set_count = p_index;
@@ -6146,6 +6168,9 @@ void RenderingDevice::draw_list_draw(DrawListID p_list, bool p_use_indices, uint
 #endif
 
 		draw_graph.add_draw_list_draw_indexed(to_draw, p_instances, 0);
+#ifdef GODOT_USE_ZIPPY
+		ZippyLedger::pass_draw(to_draw, p_instances, true);
+#endif
 	} else {
 		uint32_t to_draw;
 
@@ -6168,6 +6193,9 @@ void RenderingDevice::draw_list_draw(DrawListID p_list, bool p_use_indices, uint
 #endif
 
 		draw_graph.add_draw_list_draw(to_draw, p_instances);
+#ifdef GODOT_USE_ZIPPY
+		ZippyLedger::pass_draw(to_draw, p_instances, false);
+#endif
 	}
 
 	draw_list.state.draw_count++;
@@ -6367,6 +6395,9 @@ void RenderingDevice::draw_list_end() {
 	ERR_FAIL_COND_MSG(!draw_list.active, "Immediate draw list is already inactive.");
 
 	draw_graph.add_draw_list_end();
+#ifdef GODOT_USE_ZIPPY
+	ZippyLedger::pass_end();
+#endif
 
 	_draw_list_end();
 
@@ -6677,6 +6708,9 @@ RenderingDevice::ComputeListID RenderingDevice::compute_list_begin() {
 	compute_list.active = true;
 
 	draw_graph.add_compute_list_begin();
+#ifdef GODOT_USE_ZIPPY
+	ZippyLedger::pass_begin(true, 0, 0);
+#endif
 
 	return ID_TYPE_COMPUTE_LIST;
 }
@@ -6695,6 +6729,12 @@ void RenderingDevice::compute_list_bind_compute_pipeline(ComputeListID p_list, R
 	}
 
 	compute_list.state.pipeline = p_compute_pipeline;
+#ifdef GODOT_USE_ZIPPY
+	if (ZippyLedger::structure_frame) {
+		const Shader *shader = shader_owner.get_or_null(pipeline->shader);
+		ZippyLedger::pass_shader(shader ? shader->name : String("?"));
+	}
+#endif
 
 	draw_graph.add_compute_list_bind_pipeline(pipeline->driver_id);
 
@@ -6771,6 +6811,9 @@ void RenderingDevice::compute_list_bind_uniform_set(ComputeListID p_list, RID p_
 
 	UniformSet *uniform_set = uniform_set_owner.get_or_null(p_uniform_set);
 	ERR_FAIL_NULL(uniform_set);
+#ifdef GODOT_USE_ZIPPY
+	_ledger_pass_textures(uniform_set);
+#endif
 
 	if (p_index > compute_list.state.set_count) {
 		compute_list.state.set_count = p_index;
@@ -6935,6 +6978,9 @@ void RenderingDevice::compute_list_dispatch(ComputeListID p_list, uint32_t p_x_g
 		draw_graph.add_compute_list_bind_uniform_sets(compute_list.state.pipeline_shader_driver_id, valid_descriptor_ids, first_set_index, valid_set_count);
 	}
 	draw_graph.add_compute_list_dispatch(p_x_groups, p_y_groups, p_z_groups);
+#ifdef GODOT_USE_ZIPPY
+	ZippyLedger::pass_dispatch(p_x_groups, p_y_groups, p_z_groups);
+#endif
 	compute_list.state.dispatch_count++;
 }
 
@@ -7110,6 +7156,9 @@ void RenderingDevice::compute_list_end() {
 	ERR_FAIL_COND(!compute_list.active);
 
 	draw_graph.add_compute_list_end();
+#ifdef GODOT_USE_ZIPPY
+	ZippyLedger::pass_end();
+#endif
 
 	compute_list = ComputeList();
 }
@@ -8874,6 +8923,27 @@ uint64_t RenderingDevice::get_captured_timestamp_gpu_time(uint32_t p_index) cons
 	ERR_FAIL_UNSIGNED_INDEX_V(p_index, frames[frame].timestamp_result_count, 0);
 	return driver->timestamp_query_result_to_time(frames[frame].timestamp_result_values[p_index]);
 }
+
+#ifdef GODOT_USE_ZIPPY
+const void *RenderingDevice::_ledger_texture_key(const RDG::ResourceTracker *p_tracker) {
+	// Slices and views share their owner's tracker as parent, so one texture has one key.
+	return p_tracker && p_tracker->parent ? p_tracker->parent : p_tracker;
+}
+
+void RenderingDevice::_ledger_pass_textures(const UniformSet *p_uniform_set) {
+	if (!ZippyLedger::structure_frame) {
+		return;
+	}
+	for (int i = 0; i < p_uniform_set->draw_trackers.size(); i++) {
+		const RDG::ResourceTracker *tracker = p_uniform_set->draw_trackers[i];
+		if (tracker == nullptr || tracker->texture_driver_id.id == 0) {
+			continue;
+		}
+		const RDG::ResourceUsage usage = p_uniform_set->draw_trackers_usage[i];
+		ZippyLedger::pass_texture(_ledger_texture_key(tracker), usage == RDG::RESOURCE_USAGE_STORAGE_IMAGE_READ_WRITE);
+	}
+}
+#endif
 
 bool RenderingDevice::timestamp_calibrate(uint64_t &r_gpu_ns, uint64_t &r_cpu_monotonic_ns, uint64_t &r_deviation_ns) {
 	uint64_t gpu_ticks = 0;

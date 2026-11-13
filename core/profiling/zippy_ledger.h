@@ -31,6 +31,7 @@ enum Kind : uint8_t {
 	KIND_RENDER,
 	KIND_CALLABLE,
 	KIND_GPU,
+	KIND_SHADER,
 };
 
 enum Counter : uint8_t {
@@ -88,6 +89,22 @@ void upload(bool p_texture, uint64_t p_bytes);
 void event(const char *p_kind, const String &p_name, uint64_t p_begin_ns, uint64_t p_end_ns, uint64_t p_value);
 void gpu_frame(uint64_t p_frame, uint32_t p_count, const String *p_names, const uint64_t *p_cpu_usec, const uint64_t *p_gpu_ns);
 void gpu_calibration(uint64_t p_gpu_ns, uint64_t p_cpu_ns, uint64_t p_deviation_ns);
+
+// Frame structure: at full level, one frame in STRUCTURE_INTERVAL records every render and compute pass it records.
+constexpr uint64_t STRUCTURE_INTERVAL = 120;
+enum Load : uint8_t {
+	LOAD_LOAD,
+	LOAD_CLEAR,
+	LOAD_IGNORE,
+};
+extern bool structure_frame;
+void pass_begin(bool p_compute, uint32_t p_width, uint32_t p_height);
+void pass_attachment(const void *p_texture, const char *p_format, uint32_t p_samples, Load p_load, bool p_depth);
+void pass_shader(const String &p_shader);
+void pass_texture(const void *p_texture, bool p_write);
+void pass_draw(uint32_t p_vertices, uint32_t p_instances, bool p_indexed);
+void pass_dispatch(uint32_t p_x, uint32_t p_y, uint32_t p_z);
+void pass_end();
 
 // A zone keyed by two pointers, named on first sight by p_name(); 0 unless full level on the main thread.
 template <typename F>

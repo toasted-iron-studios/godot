@@ -1910,6 +1910,13 @@ public:
 	uint64_t get_captured_timestamps_frame() const;
 	uint64_t get_captured_timestamp_gpu_time(uint32_t p_index) const;
 	bool timestamp_calibrate(uint64_t &r_gpu_ns, uint64_t &r_cpu_monotonic_ns, uint64_t &r_deviation_ns);
+
+private:
+	// Frame ledger structure records (profiler=zippy builds).
+	static const void *_ledger_texture_key(const RDG::ResourceTracker *p_tracker);
+	void _ledger_pass_textures(const UniformSet *p_uniform_set);
+
+public:
 	uint64_t get_captured_timestamp_cpu_time(uint32_t p_index) const;
 	String get_captured_timestamp_name(uint32_t p_index) const;
 

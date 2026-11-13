@@ -115,6 +115,22 @@ A frame runs from one loop top to the next; the exclusive times of its zones plu
 - **Rebase hazards.** Pipeline creation moved to worker threads in 4.4 (events from any thread are supported); the RD upload
   paths are rewritten often.
 
+### 6. Frame structure records for the GPU frame model
+
+- **Purpose.** At full level, one frame in 120 records every render and compute pass in recording order: the renderer section
+  (the `RENDER_TIMESTAMP` it is recorded under), framebuffer size, each attachment's texture identity, format, samples, load
+  action (load, clear, ignore) and kind, the shaders bound, the textures its uniform sets read and write, draws, vertices,
+  instances, indexed draws, dispatches and workgroups. Written as an `s` record with the frame's sequence number.
+- **Touches.** `servers/rendering/rendering_device.{h,cpp}` (`draw_list_begin`, `draw_list_bind_render_pipeline`,
+  `draw_list_bind_uniform_set`, `draw_list_draw`, `draw_list_end`, `compute_list_begin`, `compute_list_bind_compute_pipeline`,
+  `compute_list_bind_uniform_set`, `compute_list_dispatch`, `compute_list_end`, `_ledger_texture_key`, `_ledger_pass_textures`);
+  `core/profiling/zippy_ledger.{h,cpp}`.
+- **Upstream.** None; RenderDoc and the RD graph's debug labels are the nearest equivalents.
+- **Verify.** A full-level ledger of a 3D scene holds `s` records every 120 frames whose passes name sections such as
+  `Render Opaque Pass` with depth and color attachments and non-zero draws and vertices.
+- **Rebase hazards.** `draw_list_begin`'s attachment loop and the uniform set's `draw_trackers` change between versions; texture
+  identity is the render graph tracker (its parent for slices). Indirect draws and `draw_list_begin_for_screen` are not recorded.
+
 ## Releases
 
 Each release is a tag `4.7.2-soggy.N` on this branch with a Linux x86_64 archive (`godot-4.7.2-soggy.N-linux-x86_64.tar.gz`:

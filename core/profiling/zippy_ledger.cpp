@@ -34,7 +34,7 @@ uint32_t keyed_id[KEYED_SLOTS] = {};
 static constexpr uint32_t MAX_IDS = 1 << 14;
 static constexpr uint32_t OVERFLOW_ID = 1;
 static constexpr int MAX_DEPTH = 96;
-static const char *KIND_NAMES[] = { "zone", "container", "csharp", "gdscript", "native-process", "render", "callable", "gpu" };
+static const char *KIND_NAMES[] = { "zone", "container", "csharp", "gdscript", "native-process", "render", "callable", "gpu", "shader" };
 static const char *COUNTER_NAMES[] = { "upload.buffer.bytes", "upload.buffers", "upload.texture.bytes", "upload.textures", "pipeline.compiles", "loads" };
 
 struct Entry {
@@ -71,6 +71,29 @@ static double ns_per_tick = 1.0;
 static double self_ns_per_zone = 0.0;
 
 static HashMap<String, uint32_t> render_ids;
+static HashMap<String, uint32_t> shader_ids;
+static uint32_t current_marker = 0;
+
+bool structure_frame = false;
+
+struct PassRecord {
+	bool compute = false;
+	uint32_t width = 0;
+	uint32_t height = 0;
+	uint32_t marker = 0;
+	std::string attachments;
+	std::vector<uint32_t> shaders;
+	std::vector<std::pair<const void *, bool>> textures;
+	uint64_t draws = 0;
+	uint64_t vertices = 0;
+	uint64_t instances = 0;
+	uint64_t indexed = 0;
+	uint64_t dispatches = 0;
+	uint64_t groups = 0;
+};
+static PassRecord pass;
+static bool pass_open = false;
+static std::string structure_passes;
 static HashMap<String, uint32_t> keyed_names;
 static HashMap<uint32_t, uint32_t> keyed_aliases;
 static uint64_t keyed_unstored = 0;
@@ -269,7 +292,97 @@ void render_marker(const String &p_name) {
 	if (p_name[0] == '<' || p_name[0] == '>') {
 		return;
 	}
-	push(register_string(render_ids, p_name, KIND_RENDER), true, now);
+	current_marker = register_string(render_ids, p_name, KIND_RENDER);
+	push(current_marker, true, now);
+}
+
+void pass_begin(bool p_compute, uint32_t p_width, uint32_t p_height) {
+	if (!structure_frame || !tl_main) {
+		return;
+	}
+	pass = PassRecord();
+	pass.compute = p_compute;
+	pass.width = p_width;
+	pass.height = p_height;
+	pass.marker = current_marker;
+	pass_open = true;
+}
+
+void pass_attachment(const void *p_texture, const char *p_format, uint32_t p_samples, Load p_load, bool p_depth) {
+	if (!pass_open) {
+		return;
+	}
+	static const char *LOADS[] = { "load", "clear", "ignore" };
+	if (!pass.attachments.empty()) {
+		pass.attachments += ',';
+	}
+	pass.attachments += "[\"" + std::to_string(uintptr_t(p_texture)) + "\",\"" + (p_format ? p_format : "?") + "\"," + std::to_string(p_samples) + ",\"" + LOADS[p_load] + "\"," + (p_depth ? "1" : "0") + "]";
+}
+
+void pass_shader(const String &p_shader) {
+	if (!pass_open) {
+		return;
+	}
+	const uint32_t id = register_string(shader_ids, p_shader, KIND_SHADER);
+	for (uint32_t existing : pass.shaders) {
+		if (existing == id) {
+			return;
+		}
+	}
+	pass.shaders.push_back(id);
+}
+
+void pass_texture(const void *p_texture, bool p_write) {
+	if (!pass_open || p_texture == nullptr) {
+		return;
+	}
+	for (std::pair<const void *, bool> &existing : pass.textures) {
+		if (existing.first == p_texture) {
+			existing.second = existing.second || p_write;
+			return;
+		}
+	}
+	pass.textures.emplace_back(p_texture, p_write);
+}
+
+void pass_draw(uint32_t p_vertices, uint32_t p_instances, bool p_indexed) {
+	if (!pass_open) {
+		return;
+	}
+	pass.draws++;
+	pass.vertices += uint64_t(p_vertices) * p_instances;
+	pass.instances += p_instances;
+	pass.indexed += p_indexed ? 1 : 0;
+}
+
+void pass_dispatch(uint32_t p_x, uint32_t p_y, uint32_t p_z) {
+	if (!pass_open) {
+		return;
+	}
+	pass.dispatches++;
+	pass.groups += uint64_t(p_x) * p_y * p_z;
+}
+
+void pass_end() {
+	if (!pass_open) {
+		return;
+	}
+	pass_open = false;
+	std::string line = std::string("{\"k\":\"") + (pass.compute ? "compute" : "draw") + "\",\"m\":" + std::to_string(pass.marker) +
+			",\"w\":" + std::to_string(pass.width) + ",\"h\":" + std::to_string(pass.height) + ",\"att\":[" + pass.attachments + "],\"sh\":[";
+	for (size_t i = 0; i < pass.shaders.size(); i++) {
+		line += (i ? "," : "") + std::to_string(pass.shaders[i]);
+	}
+	line += "],\"tex\":[";
+	for (size_t i = 0; i < pass.textures.size(); i++) {
+		line += std::string(i ? "," : "") + "[\"" + std::to_string(uintptr_t(pass.textures[i].first)) + "\"," + (pass.textures[i].second ? "1" : "0") + "]";
+	}
+	line += "],\"draws\":" + std::to_string(pass.draws) + ",\"verts\":" + std::to_string(pass.vertices) + ",\"inst\":" + std::to_string(pass.instances) +
+			",\"idx\":" + std::to_string(pass.indexed) + ",\"disp\":" + std::to_string(pass.dispatches) + ",\"groups\":" + std::to_string(pass.groups) + "}";
+	if (!structure_passes.empty()) {
+		structure_passes += ',';
+	}
+	structure_passes += line;
 }
 
 void count(Counter p_counter, uint64_t p_value) {
@@ -388,6 +501,11 @@ void frame_mark() {
 		std::lock_guard<std::mutex> lock(queue_mutex);
 		queue_words.insert(queue_words.end(), words.begin(), words.end());
 	}
+	if (!structure_passes.empty()) {
+		push_text("{\"s\":" + std::to_string(frame_seq - 1) + ",\"passes\":[" + structure_passes + "]}\n");
+		structure_passes.clear();
+	}
+	structure_frame = level >= LEVEL_FULL && frame_seq % STRUCTURE_INTERVAL == STRUCTURE_INTERVAL / 2;
 	serial++;
 	touched_count = 0;
 	frame_zones = 0;
@@ -561,6 +679,7 @@ void finalize() {
 	fclose(out);
 	out = nullptr;
 	render_ids.clear();
+	shader_ids.clear();
 	gpu_ids.clear();
 	keyed_names.clear();
 	keyed_aliases.clear();
